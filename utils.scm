@@ -1,6 +1,7 @@
 
 (define-module utils
-  (export + first rest 1+ 1- main-return loop update))
+  (export + first rest 1+ 1- length=1 length=2
+          main-return loop reserve-return update))
 
 (select-module utils)
 
@@ -20,6 +21,12 @@
 (define (1- number)
   (- number 1))
 
+(define (length=1 lis)
+  (= (length lis) 1))
+
+(define (length=2 lis)
+  (= (length lis) 2))
+
 ;; return が使える
 (define-macro (main-return . body)
   `(call/cc
@@ -32,6 +39,15 @@
     `(let loop ()
        ,@body
       (loop))))
+
+;; return を予約する
+(define-macro (reserve-return . body)
+  `(let ((result #f))
+     (let ((value
+            (letrec ((return (lambda (val)
+                               (set! result val))))
+              ,@body)))
+     (if result result value))))
 
 (define-method filter ((lis <list>))
   (filter (lambda (x) x) lis))

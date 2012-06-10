@@ -59,12 +59,12 @@
 (define (search-primitive exp)
    (lookup-top-level exp))
 
-;; (scheme-form タグ名 タグの真偽判断 タグの真偽判断が#tの場合に実行する式)
-
-(define-macro (syntax-form name question-body => . body)
-  (let ((form-name (make-syntax-name name)))
+(define-macro (syntax-form vars . body)
+  (let* ((name (car vars))
+         (args (cdr vars))
+         (form-name (make-syntax-name name)))
     `(begin
-       (define (,form-name exp)
+       (define (,form-name ,@args)
          ,@body)
        (bind! ',name (list :syntax ,form-name)))))
 
@@ -106,22 +106,58 @@
 
 (define (apply-primitive proc args)
   ((make-eval proc) (list proc args)))
-  
+
+(define (tag? keyword proc)
+  (equal? (form-tag proc) keyword))
+
+(define-macro (generate-tag-questions . names)
+  `(begin
+     ,@(map
+        (lambda (name)
+          (let ((keyword (make-keyword name))
+                (question (+ name "?")))
+            `(define (,question proc)
+               (tag? ,keyword proc))))
+        names)
+     #t))
+
+(generate-tag-questions primitive closure)
+
+(define (closure-params exp) (cadr exp))
+(define (closure-body exp) (caddr exp))
+
+(define (make-args params targets)
+  (zip params targets))
+
+;; apply 文
 (define (apply proc args)
-  (cond [(primitive? proc) (scheme-apply (form-body proc) args)]
-        [(else (error "unknown procedure type: " proc))]))
+  (reserve-return
+   (cond [(primitive? proc) (scheme-apply (form-body proc) args)]
+         [(closure? proc)
+          (begin
+            (frame-grow!)
+            (bind-foreach (make-args (closure-params proc) args))
+            (return (eval (closure-body proc)))
+            (frame-pop))]
+        [else (error "unknown procedure type: " proc)])))
 
 ;; if 文
-(syntax-form if (if? exp) =>
-             (if (true? (eval (if-pred exp)))
-                 (eval (if-true exp))
-                 (eval (if-false exp))))
+(syntax-form (if exp)
+  (if (true? (eval (if-pred exp)))
+       (eval (if-true exp))
+       (eval (if-false exp))))
 
 ;; begin文
-(syntax-form begin (begin? exp) =>
-             (eval-sequence (cdr exp)))
+(syntax-form (begin exp)
+  (eval-sequence exp))
 
-;; apply
+(define (lambda-params exp) (car exp))
+(define (lambda-body exp) (cadr exp))
+
+;; lambda 文
+(syntax-form (lambda exp)
+  (list :closure (lambda-params exp) (lambda-body exp)))
+
 (define (eval-application exp)
   (apply (eval (operator exp))
          (eval-sequence-list (operands exp))))
@@ -132,6 +168,7 @@
 ;; 束縛変数を取得する
 (define (search-variable exp)
   (cond [(search-primitive exp)]
+        [(lookup exp)]
         [else #f]))
 
 (define (variable? exp)

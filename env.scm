@@ -1,13 +1,14 @@
 
 (define-module env
   ;; *env* を公開するのはデバック用のため
-  (export *env* frame-clear! frame-push! frame-pop! frame-top-level
+  (export *env* frame-clear! frame-grow! frame-pop frame-top-level
           lookup lookup-top-level bind! bind-foreach))
 (select-module env)
 
 (use srfi-1)
 (use srfi-11)
 (use hash)
+(use utils)
 
 (define (make-frame) (make-hash))
 
@@ -24,13 +25,13 @@
       (car frames)))
 
 (define (search-keyword frame key)
-  (if (exists? #?=frame key)
+  (if (exists? frame key)
       (get frame key)
       #f))
 
 ;; public method
 
-(define (frame-push!)
+(define (frame-grow!)
   (set! *env* (cons (make-frame) *env*)))
 
 (define (frame-pop)
@@ -54,11 +55,14 @@
 
 (define (lookup-top-level keyword)
   (let ((frame (last *env*)))
-    (if (exists? frame keyword) (get frame keyword) #f)))
+    (search-keyword frame keyword)))
 
 (define (bind! key value)
   (put! (car *env*) key value))
 
 (define (bind-foreach lis)
-  (for-each (lambda (elem) (bind! (car elem) (cdr elem))) lis))
-  
+  (for-each
+   (lambda (elem)
+     (let ((rest (if (length=2 elem) cadr cdr)))
+         (bind! (car elem) (rest elem))))
+   lis))
