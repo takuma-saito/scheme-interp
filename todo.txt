@@ -1,0 +1,7 @@
+
+・hashtableを実装する
+・環境用のクラス・メソッドを作る
+・cond実装
+・lambda 実装
+・set! 実装
+・define 実装

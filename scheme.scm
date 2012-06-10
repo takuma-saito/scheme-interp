@@ -10,138 +10,69 @@
 ;; マクロ本体が返ってきた値を再度評価する
 
 (use srfi-1)
+(use utils)
+(use env)
+(use hash)
+(use debug)
 (use module.console)
 
-;; 各式のタグ情報
-(define *forms* (make-hash-table))
+(define-macro (alias alias-name name)
+  `(define ,alias-name ,name))
 
-(define (make-frame) (make-hash-table))
-
-(define (append-string symbol string)
-  (string->symbol (format "~a~a" (symbol->string symbol) string)))
-
-(define (add-string symbol string)
-  (string->symbol (format "~a~a" string (symbol->string symbol))))
-
-(define first car)
-
-;; name -> scheme-name エイリアス
-(define-macro (scheme-alias . names)
+(define-macro (aliases . names)
   `(begin
-     ,@(map (lambda (name) `(define ,(add-string name "scheme-") ,name))
-            names)
-     #f))
+    ,@(map (lambda (elem)
+         (let ((alias-name (car elem)) (name (cadr elem)))
+           `(define ,alias-name ,name)))
+       names)))
 
-(scheme-alias apply eval)
-
-(define scheme-apply apply)
-(define scheme-eval eval)
+(aliases
+ (scheme-apply apply)
+ (scheme-eval eval))
 
 (define (exp? exp target)
   (if (eq? (first exp) target) #t #f))
 
-(define (dump-hash hash)
-  (hash-table-for-each hash
-                  (lambda (key value) (print #`"|,key|: |,value|"))))
+(define (if-pred exp) (car exp))
+(define (if-true exp) (cadr exp))
+(define (if-false exp) (caddr exp))
+(define (true? exp) (if (equal? exp #f) #f #t))
 
-(define-macro (main-return . body)
-  `(call/cc
-    (lambda (return)
-      ,@body)))
+(define (operator exp) (car exp))
+(define (operands exp) (cdr exp))
+(define (form-body exp) (cadr exp))
+(define (form-tag exp) (car exp))
+(define (application? exp) (if (pair? exp) #t #f))
 
-(define-macro (get-form exp env)
-  `(call/cc
-    (lambda (return)
-      (begin
-        (cond 
-         ,@(hash-table-map *forms*
-                           (lambda (tag form)
-                             `[(,(get-form-question form) ,exp ,env) ',tag]))
-          [else (error "type error" ,exp)])))))
-
-(define (get-form-question form) (car form))
-(define (get-form-name form) (cadr form))
-
-(define (make-question form)
-  (get-form-qestion (hash-table-get *forms* form)))
-
-(define (make-eval name)
-  (get-form-name (hash-table-get *forms* name)))
-
-(define (make-form-name name)
-  (add-string name "form-"))
-
-(define (make-question name)
-  (append-string name "?"))
-
-(define (make-form-question name)
-  (make-form-name (make-question name)))
-
-(define (primitive-name form) (cadr form))
-(define (primitive-body form) (caddr form))
+(define (make-syntax-name name)
+  (+ "syntax-" name))
 
 ;; primitive 型用のタグを付ける
 (define (add-primitive-tag form)
-  (cons 'primitive form))
-
-(define (add-primitive-tags forms)
-  (map (lambda (form) (add-primitive-tag form)) forms))
+  (cons :primitive (list form)))
 
 ;; primitive型かどうかを判定する
 (define (primitive? exp)
-  (if (pair? exp) (exp? exp 'primitive) #f))
+  (if (pair? exp) (exp? exp :primitive) #f))
 
 ;; primitiveな型かどうかを判定
-(define (search-primitive exp env)
-  (main-return
-   (for-each
-    (lambda (form)
-      (let ((proc #?=(primitive-name #?=form)))
-        (if (equal? proc exp) (return form))))
-    env)
-   #f))
+(define (search-primitive exp)
+   (lookup-top-level exp))
 
 ;; (scheme-form タグ名 タグの真偽判断 タグの真偽判断が#tの場合に実行する式)
-;; scheme-form ではexp, envの2変数がデフォルトで用意されている
-;; 変換前
-;; (scheme-form number
-;;  (number? exp) exp)
-;; 
-;; 変換後
-;; (define (number? exp env)
-;;   (number? exp))
-;; (define (number-form exp env)
-;;   exp)
-;; (set! *forms (cons 'number *forms*))
-;; 
-(define-macro (scheme-form name question-body patch . body)
-  (define => 0)
-  (if (not (equal? patch '=>)) (error (format "[~a]: ~a must be =>." name patch)))
-  (let* ((question-name (make-form-question name))
-         (form-name (make-form-name name)))
+
+(define-macro (syntax-form name question-body => . body)
+  (let ((form-name (make-syntax-name name)))
     `(begin
-       (define (,question-name exp :optional env)
-         ,question-body)
-       (define (,form-name exp env)
+       (define (,form-name exp)
          ,@body)
-       (hash-table-put! *forms* ',name (list ,question-name ,form-name)))))
-
-(define-macro (generate-form-question name)
-  (let ((question (append-string name "?")))
-  `(define (,question exp)
-     (exp? exp ',name))))
-
-(define-macro (generate-form-questions . names)
-  `(begin
-     ,@(map (lambda (name) `(generate-form-question ,name)) names)
-     #t))
+       (bind! ',name (list :syntax ,form-name)))))
 
 (define-macro (if-null exp null-exp body)
   `(if (null? ,exp) ,null-exp ,body))
 
-(generate-form-questions if begin cond)
-
-(define (generate-primitives)
+(define (setup-environment)
+  
   (define primitives
     `((car ,car)
       (cdr ,cdr)
@@ -151,89 +82,83 @@
       (/ ,/)
       (> ,>)
       (< ,<)))
-  (add-primitive-tags primitives))
-
-;; 束縛変数を取得する
-(define (search-variable exp env)
-  (cond [(search-primitive exp env) => (lambda (primitive) primitive)]
-        [else #f]))
+  
+  (map
+   (lambda (x)
+     (cons (first x) (add-primitive-tag (second x))))
+   primitives))
 
 ;; 逐次的にexp内を評価する
-(define (eval-sequence exp env)
-  (last (eval-sequence-list exp env)))
+(define (eval-sequence exp)
+  (last (eval-sequence-list exp)))
                  
 ;; evalした後リストで返す
-(define (eval-sequence-list exp env)
+(define (eval-sequence-list exp)
   (letrec ((make-lists
             (lambda (params)
               (if-null params '()
-                       (cons (eval (car params) env)
+                       (cons (eval (car params))
                              (make-lists (cdr params)))))))
     (make-lists exp)))
 
+(define (eval-syntax exp)
+  ((form-body (lookup-top-level (operator exp))) (operands exp)))
+
 (define (apply-primitive proc args)
-  ((make-eval proc) (list proc args) *env*))
+  ((make-eval proc) (list proc args)))
   
 (define (apply proc args)
-  (cond [(primitive? proc) (scheme-apply (primitive-body proc) args)]
+  (cond [(primitive? proc) (scheme-apply (form-body proc) args)]
         [(else (error "unknown procedure type: " proc))]))
 
-(define (if-pred exp) (cadr exp))
-(define (if-true exp) (caddr exp))
-(define (if-false exp) (cadddr exp))
-(define (true? exp) (if (equal? exp #f) #f #t))
-
-(define (operator exp) (car exp))
-(define (operands exp) (cdr exp))
-(define (application? exp) (if (pair? exp) #t #f))
-
 ;; if 文
-(scheme-form if (if? exp) =>
-             (if (true? (eval (if-pred exp) env))
-                 (eval (if-true exp) env)
-                 (eval (if-false exp) env)))
+(syntax-form if (if? exp) =>
+             (if (true? (eval (if-pred exp)))
+                 (eval (if-true exp))
+                 (eval (if-false exp))))
 
 ;; begin文
-(scheme-form begin (begin? exp) =>
-             (eval-sequence (cdr exp) env))
+(syntax-form begin (begin? exp) =>
+             (eval-sequence (cdr exp)))
 
 ;; apply
-(scheme-form apply (application? exp) =>
-             (apply (eval (operator exp) env)
-                    (eval-sequence-list (operands exp) env)))
-
-;; primitve
-(scheme-form primitive (search-primitive #?=exp #?=env) =>
-             (search-primitive exp env))
-
-;; cond
-;; (scheme-form cond (cond? exp) =>
-
-;; define
-             
-
-(dump-hash *forms*)
+(define (eval-application exp)
+  (apply (eval (operator exp))
+         (eval-sequence-list (operands exp))))
 
 (define (atom? exp)
   (or (number? exp) (string? exp) (boolean? exp)))
 
+;; 束縛変数を取得する
+(define (search-variable exp)
+  (cond [(search-primitive exp)]
+        [else #f]))
+
 (define (variable? exp)
-  (symbol? exp))
+  (cond [(symbol? exp) (search-variable exp)]
+        [else #f]))
+
+(define (syntax? exp)
+  (main-return
+   (for-each
+    (lambda (name proc)
+      (if (and (equal? (form-tag proc) :syntax) (equal? (operator exp) name))
+          (return proc)))
+      (frame-top-level))
+   #f))
 
 ;; 全体を評価する
-(define (eval exp env)
+(define (eval exp)
   (cond [(atom? exp) exp]
-        [(variable? exp) (search-variable exp env)]
-        [(get-form exp env) => (lambda (name) ((make-eval name) exp env))]
+        [(variable? exp)]
+        [(syntax? exp) => (lambda (proc)
+                            ((form-body proc) (operands exp)))]
+        [(application? exp) (eval-application exp)]
         [else (error "Unknown expression type: " type)]))
 
-;; 環境
-(define (setup-environment)
-  (generate-primitives))
+;; 環境のセットアップ
+(bind-foreach (setup-environment))
+(p *env*)
 
-(define *env* (setup-environment))
-
-(define (main)
-  (print (console "my-scheme" (lambda (x) (eval x *env*)))))
-
-(main)
+(define (main args)
+  (print (console "my-scheme" (lambda (x) (eval x)))))
