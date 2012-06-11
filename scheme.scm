@@ -112,11 +112,16 @@
 
 (generate-tag-questions primitive closure)
 
-(define (closure-params exp) (cadr exp))
-(define (closure-body exp) (caddr exp))
+(define (closure-params exp) (car exp))
+(define (closure-body exp) (cdr exp))
 
-(define (lambda-params exp) (car exp))
-(define (lambda-body exp) (cadr exp))
+(define (procedure-name exp) (caar exp))
+(define (procedure-params exp) (cdar exp))
+(define (procedure-body exp) (cdr exp))
+
+(define (make-closure-tag params body)
+  (let ((tag (make-tag :name :closure :body body)))
+    (store tag :params params)))
 
 (define (make-args params targets)
   (zip params
@@ -133,7 +138,7 @@
           (begin
             (frame-grow!)
             (bind-foreach (make-args (get proc :params) args))
-            (return (eval (body proc)))
+            (return (eval-sequence (body proc)))
             (frame-pop))]
         [else (error "unknown procedure type: " proc)])))
 
@@ -149,12 +154,12 @@
 
 ;; lambda 文
 (syntax-form (lambda exp)
-  (let ((tag (make-tag :name :closure :body (lambda-body exp))))
-    (store tag :params (lambda-params exp))))
+  (make-closure-tag (closure-params exp) (closure-body exp)))
 
-;; set!文
-;; (syntax-form (set! exp)
-;;   (bind! 
+;; define 文
+(syntax-form (define exp)
+  (bind! (procedure-name exp)
+         (make-closure-tag #?=(procedure-params exp) (procedure-body exp))))
 
 (define (eval-application exp)
   (apply (eval (operator exp))
@@ -175,6 +180,7 @@
   (main-return
    (for-each
     (lambda (name proc)
+      (p exp)
       (if (and (tag= proc :syntax) (equal? (operator exp) name))
           (return proc)))
       (frame-top-level))
@@ -197,6 +203,11 @@
   (print (console "my-scheme" (lambda (x) (eval x)))))
 
 (eval '((lambda (square) (square 5)) (lambda (x) (* x x))))
+(eval '((lambda (x) (* x x)) 5))
+(eval '(define (square x) (* x x)))
+(eval '(square 5))
+;; (p (eval '((lambda (x) (* x x)) 5)))
+(p (get (car *env*) 'x))
 
 
 

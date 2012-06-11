@@ -6,6 +6,7 @@
 ○* 環境用のクラス・メソッドを作る
 ○* lambda 実装
 ○* tagの抽象化
+* define 実装: ( (define (square x) (* x x)))
 * set! 実装: (set! x hoge)
 * macroの実装
 * デバック用のメソッドを追加する

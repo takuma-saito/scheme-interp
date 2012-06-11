@@ -1,6 +1,6 @@
 
 (define-module utils
-  (export + first rest 1+ 1- length=1 length=2 wrap
+  (export + first rest 1+ 1- length=1 length=2 wrap dump
           main-return loop reserve-return update))
 
 (select-module utils)
@@ -29,6 +29,11 @@
 
 (define (wrap start end body)
   (format "~a ~a ~a" start body end))
+
+(define-macro (dump var)
+  `(let ((result ,var))
+    (print result)
+    result))
 
 ;; return が使える
 (define-macro (main-return . body)
