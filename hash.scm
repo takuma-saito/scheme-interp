@@ -7,6 +7,7 @@
 (select-module hash)
 
 (use utils)
+(use debug)
 
 (define-class <hash> ()
   ((table :init-keyword :table)))
@@ -15,10 +16,12 @@
   (set! (ref self 'table) (make-hash-table)))
 
 (define-method p ((hash <hash>))
-  (for-each
-   (lambda (key value) (print #`"|,key|: |,value|"))
-   hash))
-
+  (print
+   (wrap "[" "]"
+         (map
+          (lambda (key value) (format "~a: ~a" key value))
+         hash))))
+  
 (define (make-hash) (make <hash>))
 
 (define (make-hash-args args)

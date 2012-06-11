@@ -24,4 +24,13 @@
 (frame-pop!)
 (bind! 'name 'takuma)
 
+(use tag)
+(define tag1 (make-tag :name :primitive :body (lambda (x) (* x x))))
+(tag= tag1 :primitive)
+(tag= tag1 :keyword)
+(tag tag1)
+((body tag1) 5)
 
+(define-generic p)
+;; closure
+(define-method p ((self <closure>)) self)

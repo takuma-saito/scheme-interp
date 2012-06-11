@@ -5,6 +5,9 @@
 ○* hashtableを実装する
 ○* 環境用のクラス・メソッドを作る
 ○* lambda 実装
-* define 実装
+○* tagの抽象化
+* set! 実装: (set! x hoge)
+* macroの実装
+* デバック用のメソッドを追加する
+* macroでdefineを作る
 * cond実装
-* set! 実装

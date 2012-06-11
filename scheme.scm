@@ -14,6 +14,7 @@
 (use env)
 (use hash)
 (use debug)
+(use tag)
 (use module.console)
 
 (define-macro (alias alias-name name)
@@ -40,20 +41,14 @@
 
 (define (operator exp) (car exp))
 (define (operands exp) (cdr exp))
-(define (form-body exp) (cadr exp))
-(define (form-tag exp) (car exp))
 (define (application? exp) (if (pair? exp) #t #f))
 
 (define (make-syntax-name name)
   (+ "syntax-" name))
 
-;; primitive 型用のタグを付ける
-(define (add-primitive-tag form)
-  (cons :primitive (list form)))
-
 ;; primitive型かどうかを判定する
 (define (primitive? exp)
-  (if (pair? exp) (exp? exp :primitive) #f))
+  (if (pair? exp) (tag= exp :primitive) #f))
 
 ;; primitiveな型かどうかを判定
 (define (search-primitive exp)
@@ -66,7 +61,7 @@
     `(begin
        (define (,form-name ,@args)
          ,@body)
-       (bind! ',name (list :syntax ,form-name)))))
+       (bind! ',name (make-tag :name :syntax :body ,form-name)))))
 
 (define-macro (if-null exp null-exp body)
   `(if (null? ,exp) ,null-exp ,body))
@@ -85,7 +80,7 @@
   
   (map
    (lambda (x)
-     (cons (first x) (add-primitive-tag (second x))))
+     (cons (first x) (list (make-tag :name :primitive :body (second x)))))
    primitives))
 
 ;; 逐次的にexp内を評価する
@@ -102,13 +97,7 @@
     (make-lists exp)))
 
 (define (eval-syntax exp)
-  ((form-body (lookup-top-level (operator exp))) (operands exp)))
-
-(define (apply-primitive proc args)
-  ((make-eval proc) (list proc args)))
-
-(define (tag? keyword proc)
-  (equal? (form-tag proc) keyword))
+  ((body (lookup-top-level (operator exp))) (operands exp)))
 
 (define-macro (generate-tag-questions . names)
   `(begin
@@ -117,7 +106,7 @@
           (let ((keyword (make-keyword name))
                 (question (+ name "?")))
             `(define (,question proc)
-               (tag? ,keyword proc))))
+               (tag= proc ,keyword ))))
         names)
      #t))
 
@@ -126,18 +115,25 @@
 (define (closure-params exp) (cadr exp))
 (define (closure-body exp) (caddr exp))
 
+(define (lambda-params exp) (car exp))
+(define (lambda-body exp) (cadr exp))
+
 (define (make-args params targets)
-  (zip params targets))
+  (zip params
+       (map
+        (lambda (value)
+          (make-tag :name :params :body value))
+        targets)))
 
 ;; apply 文
 (define (apply proc args)
   (reserve-return
-   (cond [(primitive? proc) (scheme-apply (form-body proc) args)]
+   (cond [(primitive? proc) (scheme-apply (body proc) args)]
          [(closure? proc)
           (begin
             (frame-grow!)
-            (bind-foreach (make-args (closure-params proc) args))
-            (return (eval (closure-body proc)))
+            (bind-foreach (make-args (get proc :params) args))
+            (return (eval (body proc)))
             (frame-pop))]
         [else (error "unknown procedure type: " proc)])))
 
@@ -151,12 +147,14 @@
 (syntax-form (begin exp)
   (eval-sequence exp))
 
-(define (lambda-params exp) (car exp))
-(define (lambda-body exp) (cadr exp))
-
 ;; lambda 文
 (syntax-form (lambda exp)
-  (list :closure (lambda-params exp) (lambda-body exp)))
+  (let ((tag (make-tag :name :closure :body (lambda-body exp))))
+    (store tag :params (lambda-params exp))))
+
+;; set!文
+;; (syntax-form (set! exp)
+;;   (bind! 
 
 (define (eval-application exp)
   (apply (eval (operator exp))
@@ -166,20 +164,18 @@
   (or (number? exp) (string? exp) (boolean? exp)))
 
 ;; 束縛変数を取得する
-(define (search-variable exp)
-  (cond [(search-primitive exp)]
-        [(lookup exp)]
-        [else #f]))
-
 (define (variable? exp)
-  (cond [(symbol? exp) (search-variable exp)]
-        [else #f]))
+  (if (symbol? exp)
+      (cond [(search-primitive exp)]
+            [(lookup exp) => (lambda (value) (body value))]
+            [else #f])
+      #f))
 
 (define (syntax? exp)
   (main-return
    (for-each
     (lambda (name proc)
-      (if (and (equal? (form-tag proc) :syntax) (equal? (operator exp) name))
+      (if (and (tag= proc :syntax) (equal? (operator exp) name))
           (return proc)))
       (frame-top-level))
    #f))
@@ -189,13 +185,18 @@
   (cond [(atom? exp) exp]
         [(variable? exp)]
         [(syntax? exp) => (lambda (proc)
-                            ((form-body proc) (operands exp)))]
+                            ((body proc) (operands exp)))]
         [(application? exp) (eval-application exp)]
-        [else (error "Unknown expression type: " type)]))
+        [else (error #`"Unknown expression type: ,exp" )]))
 
 ;; 環境のセットアップ
 (bind-foreach (setup-environment))
-(p *env*)
+(p (car *env*))
 
 (define (main args)
   (print (console "my-scheme" (lambda (x) (eval x)))))
+
+(eval '((lambda (square) (square 5)) (lambda (x) (* x x))))
+
+
+

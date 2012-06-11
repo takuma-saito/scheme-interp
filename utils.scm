@@ -1,6 +1,6 @@
 
 (define-module utils
-  (export + first rest 1+ 1- length=1 length=2
+  (export + first rest 1+ 1- length=1 length=2 wrap
           main-return loop reserve-return update))
 
 (select-module utils)
@@ -26,6 +26,9 @@
 
 (define (length=2 lis)
   (= (length lis) 2))
+
+(define (wrap start end body)
+  (format "~a ~a ~a" start body end))
 
 ;; return が使える
 (define-macro (main-return . body)
@@ -55,3 +58,5 @@
 (define-method update (keyword replace (elems <list>))
   (map (lambda (elem)
           (if (equal? elem keyword) replace elem)) elems))
+
+
