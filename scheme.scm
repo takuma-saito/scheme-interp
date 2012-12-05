@@ -17,19 +17,11 @@
 (use tag)
 (use module.console)
 
-(define-macro (alias alias-name name)
-  `(define ,alias-name ,name))
-
-(define-macro (aliases . names)
-  `(begin
-    ,@(map (lambda (elem)
-         (let ((alias-name (car elem)) (name (cadr elem)))
-           `(define ,alias-name ,name)))
-       names)))
+(hash-table-map hash (lambda (x) x))
 
 (aliases
  (scheme-apply apply)
- (scheme-eval eval))
+ (scheme-eval eval)))
 
 (define (exp? exp target)
   (if (eq? (first exp) target) #t #f))
@@ -66,22 +58,19 @@
 (define-macro (if-null exp null-exp body)
   `(if (null? ,exp) ,null-exp ,body))
 
-(define (setup-environment)
-  
-  (define primitives
-    `((car ,car)
-      (cdr ,cdr)
-      (+ ,+)
-      (- ,-)
-      (* ,*)
-      (/ ,/)
-      (> ,>)
-      (< ,<)))
-  
+;; (car ...) -> (('car car) ...) を生成する
+(define-macro (generate-primitives . names)
+  `(list
+    ,@(map
+       (lambda (name)
+         `(list ',name ,name))
+       names)))
+
+(define (setup-environment)  
   (map
    (lambda (x)
      (cons (first x) (list (make-tag :name :primitive :body (second x)))))
-   primitives))
+   (generate-primitives car cdr + - * / < >)))
 
 ;; 逐次的にexp内を評価する
 (define (eval-sequence exp)
@@ -159,7 +148,14 @@
 ;; define 文
 (syntax-form (define exp)
   (bind! (procedure-name exp)
-         (make-closure-tag #?=(procedure-params exp) (procedure-body exp))))
+         (make-closure-tag (procedure-params exp) (procedure-body exp))))
+
+;; set! 文
+;; (syntax-form (set! exp)
+;;   (let ((name (set-name exp)))
+;;     (if (env-exists? name)
+;;         (env-update! name (set-body exp))
+;;         (error ("symbol not found" exp)))))
 
 (define (eval-application exp)
   (apply (eval (operator exp))
@@ -173,7 +169,7 @@
   (if (symbol? exp)
       (cond [(search-primitive exp)]
             [(lookup exp) => (lambda (value) (body value))]
-            [else #f])
+            [else (error "unbound variables: " exp)])
       #f))
 
 (define (syntax? exp)
@@ -196,11 +192,13 @@
         [else (error #`"Unknown expression type: ,exp" )]))
 
 ;; 環境のセットアップ
-(bind-foreach (setup-environment))
+(define env (make-env))
+(bind-foreach env (setup-environment))
+
 (p (car *env*))
 
 (define (main args)
-  (print (console "my-scheme" (lambda (x) (eval x)))))
+  (print (console "scheme-interp " (lambda (x) (eval x)))))
 
 (eval '((lambda (square) (square 5)) (lambda (x) (* x x))))
 (eval '((lambda (x) (* x x)) 5))

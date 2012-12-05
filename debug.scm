@@ -14,3 +14,4 @@
 (define-proxy number)
 (define-proxy string)
 (define-proxy symbol)
+(define-proxy procedure)

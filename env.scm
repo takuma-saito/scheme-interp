@@ -1,8 +1,9 @@
 
 (define-module env
   ;; *env* を公開するのはデバック用のため
-  (export *env* frame-clear! frame-grow! frame-pop frame-top-level
-          lookup lookup-top-level bind! bind-foreach))
+  (export <env> frame-clear! frame-grow! frame-pop frame-top-level
+          make-env lookup lookup-frame lookup-top-level bind! exists? update!
+          bind-foreach))
 (select-module env)
 
 (use srfi-1)
@@ -15,8 +16,6 @@
 (define (setup-frame)
   `(,(make-frame)))
 
-(define *env* (setup-frame))
-
 (define-method empty? ((frames <list>))
   (equal? frames '()))
 
@@ -24,45 +23,77 @@
   (if (empty? frames) #f
       (car frames)))
 
-(define (search-keyword frame key)
+(define (call-with-search-keyword frame key cont)
   (if (exists? frame key)
-      (get frame key)
+      (cont (get frame key))
       #f))
+
+(define (search-keyword frame key)
+  (call-with-search-keyword frame key (lambda (value) value)))
+
 
 ;; public method
 
-(define (frame-grow!)
-  (set! *env* (cons (make-frame) *env*)))
+(define-macro (ref-env)
+  `(ref self 'env))
 
-(define (frame-pop)
-  (if (equal? (cdr *env*) '()) #f
+(define-class <env> ()
+  (env :init-keyword :env :init-value (setup-frame)))
+
+(define (make-env) (make <env>))
+
+(define-method frame-grow! ((self <env>))
+  (set! ref-env (cons (make-frame) ref-env)))
+
+(define-method frame-pop ((self <env>))
+  (if (equal? (cdr ref-env) '()) #f
       (begin
-        (set! *env* (cdr *env*))
-        (car *env*))))
+        (set! ref-env (cdr ref-env))
+        (car ref-env))))
 
-(define (frame-top-level)
-  (last *env*))
+(define-method frame-top-level ((self <env>))
+  (last ref-env))
 
-(define (frame-clear!)
-  (set! *env* (setup-frame)))
+(define-method frame-clear! ((self <env>))
+  (set! ref-env (setup-frame)))
 
-(define (lookup keyword)
-  (define (lookup-inner frames key)
-    (cond [(empty? frames) #f]
-          [(pop frames) => (lambda (frame) (search-keyword frame keyword))]
-          [else (lookup-inner (cdr frames) key)]))
-  (lookup-inner *env* keyword))
+(define-macro (where frames keyword search)
+  `(begin
+     (define (lookup-inner ,frames ,keyword)
+       (cond [(empty? ,frames) #f]
+             [(pop ,frames) => ,search]
+             [else (lookup-inner (cdr ,frames) ,keyword)]))
+     ))
 
-(define (lookup-top-level keyword)
-  (let ((frame (last *env*)))
+(define-method lookup ((self <env>) keyword)
+  (where ref-env keyword
+         (lambda (frame) (search-keyword frame keyword))))
+
+(define-method lookup-frame ((self <env>) keyword)
+  (where ref-env keyword
+         (lambda (frame)
+           (call-with-search-keyword frame keyword (lambda (key) frame)))))
+
+(define-method lookup-top-level ((self <env>) keyword)
+  (let ((frame (last ref-env)))
     (search-keyword frame keyword)))
 
-(define (bind! key value)
-  (put! (car *env*) key value))
+(define-method bind! ((self <env>) key value)
+  (put! (car ref-env) key value))
 
-(define (bind-foreach lis)
+(define-method exists? ((self <env>) key)
+  (lookup self keyword))
+
+(define-method update! ((self <env>) keyword value)
+  (let ((result (lookup self keyword)))
+    (if result
+        (update! (lookup-frame self keyword) keyword value)
+        #f)))
+
+(define-method bind-foreach ((self <env>) lis)
   (for-each
    (lambda (elem)
      (let ((rest (if (length=2 elem) cadr cdr)))
          (bind! (car elem) (rest elem))))
    lis))
+

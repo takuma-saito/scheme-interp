@@ -1,36 +1,62 @@
 
-(add-load-path ".")
-(use utils)
-(use hash)
-
-(+ "fuga-" 'hoge)
-(rest '(1 2 3 4 5))
-(first '(1 2 3 4 5))
-(1- 5)
-
-(define h (make-hash))
-(define h2 (make-hash))
-(d h)
-(put! h 'name 'takuma)
-(put! h 'height 165)
-(put! h 'weight 65)
-(update! h 'name (lambda (x) 'saito))
-(delete! h 'height)
-(exists? h 'height)
-(map (lambda (key value) (list key value)) h2)
-
+(use test-suite)
 (use env)
 
-(frame-pop!)
-(bind! 'name 'takuma)
+(test-section "env")
 
-(use tag)
-(define tag1 (make-tag :name :primitive :body (lambda (x) (* x x))))
-(tag= tag1 :primitive)
-(tag= tag1 :keyword)
-(tag tag1)
-((body tag1) 5)
+(define env (make-env))
 
-(define-generic p)
-;; closure
-(define-method p ((self <closure>)) self)
+(test* "a => 10" 10
+       (bind! env 'a 10)
+       (get env 'a))
+
+(test* "name => env" 'env
+       (bind! env 'name 'env)
+       (get! env 'name))
+
+(test* "exists? name => #t" #t
+       (exists? env 'name))
+
+(test* "exists? test => #f" #f
+       (exists? env 'test))
+
+(test* "frame-pop => #f" #f
+       (frame-pop))
+
+(test* "update! => new-name" 'new-env
+       (update! env 'name 'new-env))
+
+(test* "frame-grow!" 'new-name
+       (frame-grow!)
+       (lookup env 'name))
+
+(test* "char => a" 'a
+       (bind! env 'char 'a)
+       (get env 'char))
+
+(test* "lookup-frame" #t
+       (equal? (lookup-frame env 'name) (last (ref env 'env))))
+
+(test* "lookup-top-level" #t
+       (lookup-top-level env 'name))
+
+(test* "env" 2
+       (length (ref env 'env)))
+
+(test* "name => new-name2" 'new-name2
+       (update! env 'name 'new-name2)
+       (get env 'name))
+
+(test* "bind-foreach" ('b 'c 'e #f)
+       (bind-foreach env `((a d) (b e) (c f)))
+       (list (get env 'a) (get env 'b) (get env 'c) (get env 'd)))
+
+(test* "frame-clear!" (1 #f)
+       (frame-clear!)
+       (list (length (ref env 'env)) (get env 'a)))
+
+(test-end)
+
+(test-section "")
+
+(test-result)
